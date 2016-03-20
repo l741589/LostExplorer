@@ -1,0 +1,12 @@
+var s=$.loadText("Items.json");
+$.save("Items_Bak.json",s);
+var json=JSON.parse(s);
+json.forEach(function(e){
+	if (e==null) return;
+	if (e.id>=300) return;
+	if (e.name==""||e.name==null) return;
+	e.consumable=false;
+	e.occasion=2;
+	e.scope=0;
+});
+$.save("Items.json",JSON.stringify(json));

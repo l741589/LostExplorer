@@ -1,0 +1,15 @@
+#CONFIG
+{
+  "roles": {
+	"1": {
+	  "box": ["heros",0,0,2],
+	  "name": "\\N[1]"
+	},
+	"2": {
+	  "box": ["heros",1,0,2],
+	  "name": "\\N[2]"
+	}
+  },
+  "importantColor":17
+}
+##CONFIG

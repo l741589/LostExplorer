@@ -1,0 +1,9 @@
+[
+null,
+{"id":1,"expanded":true,"name":"船舱1","order":1,"parentId":0,"scrollX":816,"scrollY":704},
+{"id":2,"expanded":false,"name":"克尔的房间","order":2,"parentId":1,"scrollX":779,"scrollY":474},
+{"id":3,"expanded":false,"name":"苏尔的房间","order":3,"parentId":1,"scrollX":519.3333333333334,"scrollY":316},
+{"id":4,"expanded":false,"name":"舰桥","order":4,"parentId":1,"scrollX":514,"scrollY":452},
+{"id":5,"expanded":false,"name":"厨房","order":5,"parentId":1,"scrollX":518,"scrollY":314},
+{"id":6,"expanded":false,"name":"生态舱","order":6,"parentId":1,"scrollX":777,"scrollY":471}
+]
