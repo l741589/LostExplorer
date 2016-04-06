@@ -40,9 +40,14 @@
 *
 * @param Pop Animation Settings
 *
-* @param Pop Fade Speed
-* @desc The speed at which the pop up fades out.
-* @default 50
+*
+* @param Pop Delay Time
+* @desc The time at which the pop up display.
+* @default 3000
+*
+* @param Pop Fade Time
+* @desc The time at which the pop up fades out.
+* @default 1000
 *
 * @param Pop Slide Speed
 * @desc You can slide the popup down/up the screen by setting the speed here.
@@ -257,672 +262,689 @@ NOTES TO REMEBER:
 var LTN = LTN || {};
 LTN.WindowPopper = LTN.WindowPopper || {};
 
-(function(){
-  'use strict';
-  // =============================================================================
-  // PARAMETERS
-  //
-  LTN.Param = LTN.Param || {};
-  LTN.Parameters = PluginManager.parameters('LTN_WindowPop');
-  LTN.Param.collectString = String(LTN.Parameters['Collection String']);
-  LTN.Param.pluralString  = String(LTN.Parameters['Plural String']);
-  LTN.Param.autoPop       = String(LTN.Parameters['Auto Item Pop']).toLowerCase();
-  LTN._mapDisplayName     = String(LTN.Parameters['Map Display Name']).toLowerCase();
-  LTN.Param.mapDisplaySe  = String(LTN.Parameters['Map Display SE Switch']).toLowerCase();
-  LTN.Param.gainString    = String(LTN.Parameters['Gain String']);
-  LTN.Param.loseString    = String(LTN.Parameters['Lose String']);
-  LTN.Param.goldIcon      = Number(LTN.Parameters['Gold Icon']);
-  LTN.Param.autoPopAlign  = String(LTN.Parameters['Auto Pop Alignment']).toLowerCase();
-  LTN.Param.popSe         = String(LTN.Parameters['Window Pop SE']);
-  LTN.Param.popPitch      = Number(LTN.Parameters['SE Pitch']);
-  LTN.Param.popVol        = Number(LTN.Parameters['SE Volume']);
-  LTN.Param.windowX       = Number(LTN.Parameters['Window X Position']);
-  LTN.Param.windowY       = Number(LTN.Parameters['Window Y Position']);
-  LTN.Param.windowWidth   = Number(LTN.Parameters['Window Width']);
-  LTN.Param.bgType        = String(LTN.Parameters['Background Type']).toLowerCase();
-  LTN.Param.bgImage       = String(LTN.Parameters['BG Image Filename']);
-  LTN.Param.bgOffsetX     = Number(LTN.Parameters['BG X Offset']);
-  LTN.Param.bgOffsetY     = Number(LTN.Parameters['BG Y Offset']);
-  LTN.Param.windowGradA   = String(LTN.Parameters['WindowBG Gradient 1']);
-  LTN.Param.windowGradB   = String(LTN.Parameters['WindowBG Gradient 2']);
-  LTN.Param.popFade       = Number(LTN.Parameters['Pop Fade Speed']);
-  LTN.Param.popSlideSpeed = Number(LTN.Parameters['Pop Slide Speed']);
-  LTN.Param.popUpDelay    = Number(LTN.Parameters['Pop Up Delay']);
-
-
-  // =============================================================================
-  // Game_System
-  // =============================================================================
-  LTN.WindowPop_oldGS_init = Game_System.prototype.initialize;
-  Game_System.prototype.initialize = function() {
-    LTN.WindowPop_oldGS_init.call(this);
-    //Collection Mode Object, for handling array & types. Saves to savefile!
-    this.collectObj = {
-      item:   {itemId: [], itemMax: [], gameVar: [] },
-      armor:  {itemId: [], itemMax: [], gameVar: [] },
-      weapon: {itemId: [], itemMax: [], gameVar: [] }
-    };
-  };
-  Game_System.prototype.collectionObject = function() {
-    return this.collectObj;
-  };
-  // =============================================================================
-  // Game Party: Assign Auto Pop Variables
-  // =============================================================================
-  //--------------------------------------
-  // Alias Nethod: Gain Gold
-  //------------------------------------------------------------------------------
-  LTN.WindowPop_gameParty_GainGold = Game_Party.prototype.gainGold;
-  //------------------------------------------------------------------------------
-  Game_Party.prototype.gainGold = function(amount) {
-    if (LTN.Param.autoPop === 'on') {
-      if( SceneManager._scene.constructor !== Scene_Map) return;
-      WinPopManager.addToQueue('gold', LTN.Param.goldIcon, amount, amount);
-    }
-    LTN.WindowPop_gameParty_GainGold.call(this, amount);
-  };
-  //-----------------------------------------------------------
-  // Alias Nethod: gainItem. Add current gained item to queue
-  LTN.WindowPop_oldGP_gainItem = Game_Party.prototype.gainItem;
-  Game_Party.prototype.gainItem = function(item, amount, includeEquip) {
-    LTN.WindowPop_oldGP_gainItem.call(this, item, amount, includeEquip); //Call Original Method
-    if (LTN.Param.autoPop === 'on' && item) {
-        WinPopManager.addToQueue('item', item.iconIndex, item, amount);
-      }
-
-    $gameMap.requestRefresh();
-  };
-
-  //===========================================================================
-  // Scene Map: Implement Window Pop Into Scene_Map
-  //===========================================================================
-  //----------------------------------------------
-  // Aliased Nethod:  Create Window Pop in Scene_Map
-  LTN.WindowPop_Scene_Map_Update = Scene_Map.prototype.update;
-
-  // Aliased Method Scene_Update
-  Scene_Map.prototype.update = function() {
-    LTN.WindowPop_Scene_Map_Update.call(this);
-    WinPopManager.addToSceneMap();
-  };
-
-  //------------------------------------------------------------------------------
-  // Alised Method:  If using the Map Display name feature, overwrite to use WindowPop
-  //------------------------------------------------------------------------------
-  LTN.WindowPop_oldSceneMap_Start   = Scene_Map.prototype.start;
-  //------------------------------------------------------------------------------
-  Scene_Map.prototype.start = function() {
-    if(LTN._mapDisplayName === 'on'){
-      var mapName = $gameMap.displayName();
-      Scene_Base.prototype.start.call(this);
-      SceneManager.clearStack();
-      if (this._transfer) {
-        this.fadeInForTransfer();
-        if(mapName) {
-          WinPopManager.addToQueue('map');
-        }
-        $gameMap.autoplay();
-      } else if (this.needsFadeIn()) {
-        this.startFadeIn(this.fadeSpeed(), false);
-      }
-      this.menuCalling = false;
-    } else {
-      LTN.WindowPop_oldSceneMap_Start.call(this);
-    }
-  };
-
-  //=============================================================================
-  //  WINDOW POP. The main window which pops up.
-  //
-  //
-  function Window_Pop() {
-    this.initialize.apply(this, arguments);
-  }
-
-  Window_Pop.prototype = Object.create(Window_Base.prototype);
-  Window_Pop.prototype.constructor = Window_Pop;
-  //-------=====---------
-  //Initialize
-  //-------=====---------
-  Window_Pop.prototype.initialize = function(pop, x, y) {
-    this._pop = pop;   // Winodw Pop Public Var for popUp Array
-    var collectObj     = $gameSystem.collectionObject();
-    var width          = LTN.Param.windowWidth;
-    var height         = this.lineHeight(3);
-    var px             = LTN.Param.windowX;
-    var py             = LTN.Param.windowY;
-    Window_Base.prototype.initialize.call(this, px, py, width, height);
-    this.opacity = 0;
-    this.padding = 0;
-    this.refresh();
-  };
-  //-------=====---------
-  //Refresh
-  //-------=====---------
-  Window_Pop.prototype.refresh = function() {
-    this.contents.clear();
-    this.popSe(this._pop.item);
-    this.backgroundManager(LTN.Param.bgType);
-    this.contentManager(this._pop.type, this._pop.icon, this._pop.item, this._pop.amount);
-  };
-
-  //Draw Content according to type
-  Window_Pop.prototype.contentManager = function(type, icon, item, amount) {
-    var align    = LTN.Param.autoPopAlign;
-    switch (type) {
-      case 'item':
-      if(WinPopManager.collectMode === 'true' && WinPopManager.itemIsMatch(item, item.id) && amount > 0){
-        this.drawItemCollector(item.iconIndex, item, align);
-      } else {
-        this.drawItemContents(item.iconIndex, item, amount, align);
-      }
-      break;
-      case 'gold':
-      this.drawGoldContents(icon, amount, align);
-      break;
-      case 'custom':
-      this.drawCustomContents(icon, item, align);
-      break;
-      case 'map':
-      this.drawMapDisplay(align);
-      break;
-    }
-  };
-  Window_Pop.prototype.backgroundManager = function(type){
-    var bgWidth = LTN.Param.windowWidth;
-    //Check which BG to use.
-    switch (type) {
-      // Image choice
-      case 'image':
-      this.drawBackgroundImage();
-      break;
-      // Gradient Choice
-      case 'gradient':
-      this.drawBackgroundGradient(0, 0, bgWidth, this.lineHeight(2));
-      break;
-      // Defualt Choice
-      default:
-      this.drawBackgroundGradient(0, 0, bgWidth, this.lineHeight(2));
-      break;
-    }
-  };
-  //-------=====---------
-  // Draw contents for Auto Item Pop
-  //-------=====---------
-  Window_Pop.prototype.drawMapDisplay = function(align) {
-    var mapName = $gameMap.displayName();
-    var x = this.alignPopText(mapName, LTN.Param.windowWidth, align);
-    if (mapName) this.drawTextEx(mapName, x, 0);
-  };
-  //-------=====---------
-  // Draw contents for Auto Item Pop
-  //-------=====---------
-  Window_Pop.prototype.drawItemContents = function(icon, item, amount, align) {
-    var gainString  = LTN.Param.gainString;
-    var loseString  = LTN.Param.loseString;
-    var increment   = WinPopManager.checkIncrement(amount, gainString , loseString);
-    var newAmount   = WinPopManager.cleanString(amount);
-    var coloredItem = WinPopManager.addColorCodeTo(item);
-    var itemString = '';
-    itemString  = increment + newAmount + ' ' + coloredItem;
-    var tx = this.alignPopText(itemString, LTN.Param.windowWidth, align);
-    var ix = tx - 32;
-
-    this.drawIcon(icon, ix, 2);
-    this.drawTextEx(itemString, tx, 0);
-  };
-  //-------=====---------
-  // Draw contents for Auto Item Pop Collection Mode
-  //-------=====---------
-  Window_Pop.prototype.drawItemCollector = function(icon, item, align){
-    // String Variables
-    var gainString   = LTN.Param.collectString;
-    var pluralString = LTN.Param.pluralString;
-    var coloredItem  = WinPopManager.addColorCodeTo(item);
-    var itemString   = '';
-
-    //Collection Object Variables
-    var varVal  = WinPopManager.getValueFromObj('gameVar', item, item.id);
-    var itemMax = WinPopManager.getValueFromObj('itemMax', item, item.id);
-    var itemVar = $gameVariables.value(varVal);
-
-    // Draw contents if item matches array in collect object
-    if(WinPopManager.collectMode === 'true' && WinPopManager.itemIsMatch(item, item.id)) {
-      itemString = gainString + ' ' + itemVar + '/'+ itemMax + ' ' + coloredItem + pluralString;
-      var tx = this.alignPopText(itemString, LTN.Param.windowWidth, align);
-      var ix = tx - 32;
-      this.drawIcon(icon, ix, 2);
-      this.drawTextEx(itemString, tx, 0);
-    }
-  };
-  //-------=====---------
-  // Draw contents for Auto Gold Pop
-  //-------=====---------
-  Window_Pop.prototype.drawGoldContents = function(icon, amount, align) {
-    var gainString = LTN.Param.gainString;
-    var loseString = LTN.Param.loseString;
-    var increment  = WinPopManager.checkIncrement(amount, gainString, loseString);
-    var newAmount  = WinPopManager.cleanString(amount);
-    var goldString = increment +  newAmount + ' ' + TextManager.currencyUnit;
-    var tx = this.alignPopText(goldString, LTN.Param.windowWidth, align);
-    var ix = tx - 32;
-
-    this.drawIcon(icon, ix, 2);
-    this.drawTextEx(goldString , tx, 0);
-    // }
-  };
-  //-------=====---------
-  // Draw contents For Custom Call
-  //-------=====---------
-  Window_Pop.prototype.drawCustomContents = function(icon, string, align) {
-    var tx = this.alignPopText(string, LTN.Param.windowWidth, align);
-    var ix = tx - 32;
-    this.drawTextEx(string, tx, 0);
-    this.drawIcon(icon, ix, 2);
-  };
-  //-------=====---------
-  // Draw Background
-  //-------=====---------
-  Window_Pop.prototype.drawBackgroundGradient = function(x, y, width, height) {
-    var color1 = LTN.Param.windowGradA;
-    var color2 = LTN.Param.windowGradB;
-    this.contents.gradientFillRect(x, y, width / 2, height, color2, color1);
-    this.contents.gradientFillRect(x + width / 2, y, width / 2, height, color1, color2);
-  };
-  //-------=====---------
-  // Draw Background Image
-  //-------=====---------
-  Window_Pop.prototype.drawBackgroundImage = function() {
-    this._backSprite = ImageManager.loadSystem(LTN.Param.bgImage);
-    this._backSprite1 = new Sprite(this._backSprite);
-    this._backSprite1.x       = LTN.Param.bgOffsetX;
-    this._backSprite1.y       = LTN.Param.bgOffsetY;
-    this.addChildToBack(this._backSprite1);
+(function() {
+    'use strict';
+    // =============================================================================
+    // PARAMETERS
     //
-  };
-  Window_Pop.prototype.standardPadding = function(actor) {
-    return 0;
-  };
-  //-------=====---------
-  // New Method: To Align Auto Pop string for drawTextEx methods x value.
-  //-------=====---------
-  Window_Pop.prototype.alignPopText = function(string, maxWidth, align) {
-    var messageCodesWidth =  this.adjustStringWidth(string);
-    var textWidth          = this.textWidth(string);
-    var stringWidth        =  textWidth - messageCodesWidth;
-    var finalX = 0;
-    switch (align) {
-      case 'center':
-      finalX = (maxWidth - stringWidth) / 2;
-      break;
-      case 'left':
-      finalX = 32;
-      break;
-      case 'right':
-      finalX =  maxWidth - stringWidth;
-      break;
-    }
-    if(finalX < 32) finalX = 32;
-    return finalX;
-  };
-  //-------=====---------
-  // New Method: To adjust the alignment when message codes are present in string
-  //-------=====---------
-  Window_Pop.prototype.adjustStringWidth = function(string) {
-    var widthToRemove = '';
-    var toAdjust = string.match(/(\\[CNVG]\[\d*\])/g);
-    if(!toAdjust) return 0;
-    for (var i = 0 ; i < toAdjust.length ; i++) {
-      widthToRemove += toAdjust[i];
-    }
-    var removedWidth = this.textWidth(widthToRemove);
-    return removedWidth;
-  };
-  //-------=====---------
-  // New Method: popSe, Setup sound effect object
-  //-------=====---------
-  Window_Pop.prototype.popSe = function(item) {
-    var popSe    = {};
-    WinPopManager.changePopSound(popSe, item);
-    popSe.pitch  = LTN.Param.popPitch;
-    popSe.volume = LTN.Param.popVol;
-    popSe.pan    = 0;
-    AudioManager.playSe(popSe);
-  };
-  // =============================================================================
-  // New Static Class: Window Pop Manager
-  //
-  // - Handles All Window Pop Functions, Queue System, Collection Mode & Note Tags
-  // - functions include: sortItemType, addColorTo, cleanString, getNotetag...
-  //
-  function WinPopManager() {
-  }
-  LTN.WindowPopper=WinPopManager;
-  // Public variables - Call using this.
-  WinPopManager.popQueue = [];
-  WinPopManager.popUps   = [];
-  WinPopManager.popUpDelay = 0;
+    LTN.Param = LTN.Param || {};
+    LTN.Parameters = PluginManager.parameters('LTN_WindowPop');
+    LTN.Param.collectString = String(LTN.Parameters['Collection String']);
+    LTN.Param.pluralString = String(LTN.Parameters['Plural String']);
+    LTN.Param.autoPop = String(LTN.Parameters['Auto Item Pop']).toLowerCase();
+    LTN._mapDisplayName = String(LTN.Parameters['Map Display Name']).toLowerCase();
+    LTN.Param.mapDisplaySe = String(LTN.Parameters['Map Display SE Switch']).toLowerCase();
+    LTN.Param.gainString = String(LTN.Parameters['Gain String']);
+    LTN.Param.loseString = String(LTN.Parameters['Lose String']);
+    LTN.Param.goldIcon = Number(LTN.Parameters['Gold Icon']);
+    LTN.Param.autoPopAlign = String(LTN.Parameters['Auto Pop Alignment']).toLowerCase();
+    LTN.Param.popSe = String(LTN.Parameters['Window Pop SE']);
+    LTN.Param.popPitch = Number(LTN.Parameters['SE Pitch']);
+    LTN.Param.popVol = Number(LTN.Parameters['SE Volume']);
+    LTN.Param.windowX = Number(LTN.Parameters['Window X Position']);
+    LTN.Param.windowY = Number(LTN.Parameters['Window Y Position']);
+    LTN.Param.windowWidth = Number(LTN.Parameters['Window Width']);
+    LTN.Param.bgType = String(LTN.Parameters['Background Type']).toLowerCase();
+    LTN.Param.bgImage = String(LTN.Parameters['BG Image Filename']);
+    LTN.Param.bgOffsetX = Number(LTN.Parameters['BG X Offset']);
+    LTN.Param.bgOffsetY = Number(LTN.Parameters['BG Y Offset']);
+    LTN.Param.windowGradA = String(LTN.Parameters['WindowBG Gradient 1']);
+    LTN.Param.windowGradB = String(LTN.Parameters['WindowBG Gradient 2']);
+    LTN.Param.popFadeTime = Number(LTN.Parameters['Pop Fade Time']);
+    LTN.Param.popDelayTime = Number(LTN.Parameters['Pop Delay Time']);
+    LTN.Param.popSlideSpeed = Number(LTN.Parameters['Pop Slide Speed']);
 
-  WinPopManager._align = 'left';
-  //
-  WinPopManager.collectMode = 'false';
 
-  //----------------------------------------------------------------------------
-  // Window Pop Queue Functions
-  // - Handles queue arrays & adds to scene map, & animations.
-  //
-  WinPopManager.addToSceneMap = function(){
-    if(this.popUpDelay > 0) this.popUpDelay--;
-    if(this.popQueue.length > 0 && this.popUpDelay <= 0){
-      var curPop = this.popQueue[0];
-       this.adjustCollectionVar(curPop.item, curPop.amount);
-      var newPop = new Window_Pop(this.popQueue[0], this.x, this.y);
-      this.popQueue.shift();
-      this.popUps.push(newPop);
-      SceneManager._scene.addChild(newPop);
-      this.popUpDelay = LTN.Param.popFade;
-    }
-    this.slideDownPop();
-  };
-  // Animate: slide down pop ups.
-  WinPopManager.slideDownPop = function(){
-    if(this.popUps.length > 0) {
-      for (var i = this.popUps.length -1; i >= 0; i--) {
-        this.popUps[i].y += LTN.Param.popSlideSpeed;
-        this.popUps[i].alpha -= 0.5/LTN.Param.popFade;
-        if(this.popUps[i].alpha < 0) {
-          SceneManager._scene.removeChild(this.popUps[i]);
-          this.popUps.splice(this.popUps.indexOf(this.popUps[i]), 1);
+    // =============================================================================
+    // Game_System
+    // =============================================================================
+    LTN.WindowPop_oldGS_init = Game_System.prototype.initialize;
+    Game_System.prototype.initialize = function () {
+        LTN.WindowPop_oldGS_init.call(this);
+        //Collection Mode Object, for handling array & types. Saves to savefile!
+        this.collectObj = {
+            item: {itemId: [], itemMax: [], gameVar: []},
+            armor: {itemId: [], itemMax: [], gameVar: []},
+            weapon: {itemId: [], itemMax: [], gameVar: []}
+        };
+    };
+    Game_System.prototype.collectionObject = function () {
+        return this.collectObj;
+    };
+    // =============================================================================
+    // Game Party: Assign Auto Pop Variables
+    // =============================================================================
+    //--------------------------------------
+    // Alias Nethod: Gain Gold
+    //------------------------------------------------------------------------------
+    LTN.WindowPop_gameParty_GainGold = Game_Party.prototype.gainGold;
+    //------------------------------------------------------------------------------
+    Game_Party.prototype.gainGold = function (amount) {
+        if (LTN.Param.autoPop === 'on') {
+            if (SceneManager._scene.constructor !== Scene_Map) return;
+            WinPopManager.addToQueue('gold', LTN.Param.goldIcon, amount, amount);
         }
-      }
-    }
-  };
-  //-------=====---------
-  //Set & Add to Queue Array
-  //-------=====---------
-  WinPopManager.addToQueue = function(type, icon, item, amount){
-    if( SceneManager._scene.constructor !== Scene_Map) return;
-    var pop    = this.createEmptyPop();
-    pop.type  = type;
-    pop.icon   = icon;
-    pop.item = item;
-    pop.amount = amount;
-    this.popQueue.push(pop);
-  };
-  // Create empty object for queueing
-  WinPopManager.createEmptyPop = function() {
-    var empty = {};
-    empty.type = '';
-    empty.icon = 0;
-    empty.string = "";
-    empty.amount = 0;
-    return empty;
-  };
-  //
-  //------------------------------------------------------------------------------
-  // Collection Mode Functions.
-  //  - To handle all object arrays input from the plugin command
-  //
-  WinPopManager.pushToObjArray = function(itemType, itemId, gameVar, maxValue){
-    var obj = $gameSystem.collectionObject();
-    var index = itemId;
-
-    switch (itemType) {
-      case 'item':
-      if(this.itemIdIndex('item', itemId) < 0){
-        obj.item.gameVar.push(gameVar);
-        obj.item.itemId.push(itemId);
-        obj.item.itemMax.push(maxValue);
-      }
-      break;
-      case 'armor':
-      if(this.itemIdIndex('armor', itemId) < 0){
-        obj.armor.gameVar.push(gameVar);
-        obj.armor.itemId.push(itemId);
-        obj.armor.itemMax.push(maxValue);
-      }
-      break;
-      case 'weapon':
-      if(this.itemIdIndex('weapon', itemId) < 0){
-        obj.weapon.gameVar.push(gameVar);
-        obj.weapon.itemId.push(itemId);
-        obj.weapon.itemMax.push(maxValue);
-      }
-      break;
-    }
-  };
-
-  // For Plugin Command: Remove an Item(elements) from the array and reset variable
-  WinPopManager.removeFromArray = function(itemType, itemId) {
-    var obj = $gameSystem.collectionObject();
-    var index = this.itemIdIndex('item', itemId);
-    switch (itemType) {
-      case 'item':
-      if(this.itemIdIndex('item', itemId) > -1){
-        obj.item.gameVar.splice(index, 1);
-        obj.item.itemId.splice(index, 1);
-        obj.item.itemMax.splice(index, 1);
-        $gameVariables.setValue(index, 0);
-      }
-      break;
-      case 'armor':
-      if(this.itemIdIndex('armor', itemId) > -1){
-        obj.item.gameVar.splice(index, 1);
-        obj.armor.itemId.splice(index, 1);
-        obj.armor.itemMax.splice(index, 1);
-        $gameVariables.setValue(index, 0);
-      }
-      break;
-      case 'weapon':
-      if(this.itemIdIndex('weapon', itemId) > -1){
-        obj.item.gameVar.splice(index, 1);
-        obj.weapon.itemId.splice(index, 1);
-        obj.weapon.itemMax.splice(index, 1);
-        $gameVariables.setValue(index, 0);
-      }
-      break;
-    }
-  };
-  // Check if current item poping is a match with object arrays
-  WinPopManager.itemIsMatch = function(item, itemId) {
-    var obj = $gameSystem.collectionObject();
-    var index = String(itemId);
-    var itemType = this.sortItemType(item);
-    var value = false;
-    switch (itemType) {
-      case 'item':
-      if(obj.item.itemId.indexOf(index) >-1) value = true;
-      break;
-      case 'armor':
-      if(obj.armor.itemId.indexOf(index) >-1) value = true;
-      break;
-      case 'weapon':
-      if(obj.weapon.itemId.indexOf(index) >-1) value = true;
-      break;
-    }
-    return value;
-  };
-  //Get the index from the array for current item poping
-  WinPopManager.itemIdIndex = function(itemType, itemId) {
-    var obj = $gameSystem.collectionObject();
-    var index = String(itemId);
-    var objIndex = 0;
-    if(itemType === 'item')   objIndex = obj.item.itemId.indexOf(index);
-    if(itemType === 'armor')  objIndex = obj.armor.itemId.indexOf(index);
-    if(itemType === 'weapon') objIndex = obj.weapon.itemId.indexOf(index);
-    return objIndex;
-  };
-  // get value from arrays, by using current array position
-  WinPopManager.getValueFromObj = function(type, item, itemId){
-    var itemType = this.sortItemType(item);
-    var index = this.itemIdIndex(itemType, itemId);
-    var obj = $gameSystem.collectionObject();
-    var value = '';
-    switch (type) {
-      case 'gameVar':
-      if(itemType === 'item')   value = obj.item.gameVar[index];
-      if(itemType === 'armor')  value = obj.armor.gameVar[index];
-      if(itemType === 'weapon') value = obj.weapon.gameVar[index];
-      break;
-      case 'itemMax':
-      if(itemType === 'item')   value = obj.item.itemMax[index];
-      if(itemType === 'armor')  value = obj.armor.itemMax[index];
-      if(itemType === 'weapon') value = obj.weapon.itemMax[index];
-      break;
-    }
-    return value;
-  };
-
-  // Add +1 to gamevariables for collection mode.
-  WinPopManager.adjustCollectionVar = function(item, amount) {
-    if(!item) return;
-    if(this.collectMode === 'true' && this.itemIsMatch(item, item.id)) {
-      var gameVar = this.getValueFromObj('gameVar', item, item.id);
-      var oldValue = $gameVariables.value(gameVar);
-      if(amount > 0) $gameVariables.setValue(gameVar, oldValue + amount);
-    }
-  };
-  //
-  //-----------------------------------------------------------------------------
-  // Window Pop Functions
-  //
-
-  //Sort through item notetags if sound note tag is there change se otherwise defualt
-  WinPopManager.changePopSound = function(sound, item) {
-    var newSound = this.getSoundTagByItemType(item);
-    var itemType = this.sortItemType(item);
-    if(newSound && itemType === 'item'){
-      sound.name   = String(newSound).trim();
-    } else {
-      sound.name   = LTN.Param.popSe;
-    }
-  };
-
-  // Add the color code from notetag to string
-  WinPopManager.addColorCodeTo = function(item) {
-    var colorCode = this.getColorTagByItemType(item);
-    var oldString = item.name;
-    var newString = '';
-    if(colorCode){
-      var colorCodeString = '\\C[' + colorCode + ']';
-      newString = colorCodeString.replace(/\s/g, '') + oldString;
-      return newString;
-    } else {
-      return oldString;
-    }
-  };
-
-
-  // New Method: Clean the string, to remove the minus (-) symbol from item.amount
-  WinPopManager.cleanString = function(string) {
-    var oldString = String(string);
-    if(!oldString) return;
-    var cleanString = oldString.replace(/(^-)/g,'');
-    return cleanString;
-  };
-
-  // Check the amount of of item being gained or lost, & change string accordingly
-  WinPopManager.checkIncrement = function(amount, gainString, loseString) {
-    var increment = '';
-    if(amount > 0){
-      increment  = gainString;
-    } else if(amount < 0) {
-      increment  = loseString;
-    }
-    return increment;
-  };
-
-  // Sort items, and set the item type.
-  WinPopManager.sortItemType = function(item) {
-    var itemType = '';
-    if (DataManager.isItem(item)) {
-      itemType = 'item';
-    } else if (DataManager.isWeapon(item)) {
-      itemType = 'weapon';
-    } else if (DataManager.isArmor(item)) {
-      itemType = 'armor';
-    } else {
-      itemType = '';
-    }
-    return itemType;
-  };
-
-  // Find notetag according to item being gained
-  WinPopManager.getSoundTagByItemType = function(item) {
-    var soundNotetag = '';
-    var itemType = this.sortItemType(item);
-    switch (itemType) {
-      case 'armor':
-      soundNotetag = $dataArmors[item.id].meta.WPOP_Sound;
-      break;
-      case 'item':
-      soundNotetag = $dataItems[item.id].meta.WPOP_Sound;
-      break;
-      case 'weapon':
-      soundNotetag = $dataWeapons[item.id].meta.WPOP_Sound;
-      break;
-    }
-    return soundNotetag ? soundNotetag : LTN.Param.popSe;
-  };
-
-  // Set the notetag according to type of item
-  WinPopManager.getColorTagByItemType = function(item) {
-    var colorNotetag = '';
-    var itemType = this.sortItemType(item);
-    switch (itemType) {
-      case 'armor':
-      colorNotetag = $dataArmors[item.id].meta.WPOP_Color;
-      break;
-      case 'item':
-      colorNotetag = $dataItems[item.id].meta.WPOP_Color;
-      break;
-      case 'weapon':
-      colorNotetag = $dataWeapons[item.id].meta.WPOP_Color;
-      break;
-    }
-    return colorNotetag;
-  };
-  // =============================================================================
-  // Game_Interpreter.. Create Plugin Command
-  //
-  /*
-  =================Dev Notes=============
-  Add plugin commands for each On/Off switch in the plugin parameters.
-  */
-  LTN.WPOP_oldGPpluginCommand = Game_Interpreter.prototype.pluginCommand;
-  Game_Interpreter.prototype.pluginCommand = function(command, args) {
-    LTN.WPOP_oldGPpluginCommand.call(this, command, args);
-    switch (command) {
-      // WPOP ALIGN ICON STRING
-      case 'WPOP':
-      var pluginString = '';
-      var j = args.length;
-      for (var i = 2; i < j; i++) {
-        if (i < j){
-          pluginString  += args[i] ? args[i] : '';
-          pluginString  += " ";
+        LTN.WindowPop_gameParty_GainGold.call(this, amount);
+    };
+    //-----------------------------------------------------------
+    // Alias Nethod: gainItem. Add current gained item to queue
+    LTN.WindowPop_oldGP_gainItem = Game_Party.prototype.gainItem;
+    Game_Party.prototype.gainItem = function (item, amount, includeEquip) {
+        LTN.WindowPop_oldGP_gainItem.call(this, item, amount, includeEquip); //Call Original Method
+        if (LTN.Param.autoPop === 'on' && item) {
+            WinPopManager.addToQueue('item', item.iconIndex, item, amount);
         }
-      }
-      var align    = args[0] ? String(args[0]).toLowerCase() : 'left';
-      var icon     = args[1] ? Number(args[1]) : 0;
-      var string   = pluginString;
-      WinPopManager._align = align;
-      WinPopManager.addToQueue('custom', icon, string, 0);
-      break;
-      // WPOPCMODE TRUE/FALSE
-      case 'WPOPCMODE':
-      WinPopManager.collectMode = args[0] ? String(args[0]).toLowerCase() : 'false';
-      break;
-      // WPOPCSET ItemType ItemId Variable MaxValue
-      case 'WPOPCSET':
-      WinPopManager.pushToObjArray(args[0].toLowerCase(), args[1], args[2], args[3]);
-      break;
-      // WPOPCRESET ItemType ItemId
-      case 'WPOPCRESET':
-      WinPopManager.removeFromArray(args[0].toLowerCase(), args[1]);
-      break;
+
+        $gameMap.requestRefresh();
+    };
+
+    //===========================================================================
+    // Scene Map: Implement Window Pop Into Scene_Map
+    //===========================================================================
+    //----------------------------------------------
+    // Aliased Nethod:  Create Window Pop in Scene_Map
+    LTN.WindowPop_Scene_Map_Update = Scene_Map.prototype.update;
+
+    // Aliased Method Scene_Update
+    Scene_Map.prototype.update = function () {
+        LTN.WindowPop_Scene_Map_Update.call(this);
+        WinPopManager.addToSceneMap();
+    };
+
+    //------------------------------------------------------------------------------
+    // Alised Method:  If using the Map Display name feature, overwrite to use WindowPop
+    //------------------------------------------------------------------------------
+    LTN.WindowPop_oldSceneMap_Start = Scene_Map.prototype.start;
+    //------------------------------------------------------------------------------
+    Scene_Map.prototype.start = function () {
+        if (LTN._mapDisplayName === 'on') {
+            var mapName = $gameMap.displayName();
+            Scene_Base.prototype.start.call(this);
+            SceneManager.clearStack();
+            if (this._transfer) {
+                this.fadeInForTransfer();
+                if (mapName) {
+                    WinPopManager.addToQueue('map');
+                }
+                $gameMap.autoplay();
+            } else if (this.needsFadeIn()) {
+                this.startFadeIn(this.fadeSpeed(), false);
+            }
+            this.menuCalling = false;
+        } else {
+            LTN.WindowPop_oldSceneMap_Start.call(this);
+        }
+    };
+
+    //=============================================================================
+    //  WINDOW POP. The main window which pops up.
+    //
+    //
+    function Window_Pop() {
+        this.initialize.apply(this, arguments);
     }
-  };
+
+    Window_Pop.prototype = Object.create(Window_Base.prototype);
+    Window_Pop.prototype.constructor = Window_Pop;
+    //-------=====---------
+    //Initialize
+    //-------=====---------
+    Window_Pop.prototype.initialize = function (pop, x, y, index) {
+        this._pop = pop;   // Winodw Pop Public Var for popUp Array
+        var collectObj = $gameSystem.collectionObject();
+        var width = LTN.Param.windowWidth;
+        var height = this.lineHeight(3);
+        var px = x;
+        var py = y + height * index;
+        Window_Base.prototype.initialize.call(this, px, py, width, height);
+        this.opacity = 0;
+        this.padding = 0;
+        this.createTime = new Date().getTime();
+        this.index = index;
+        this.refresh();
+    };
+    //-------=====---------
+    //Refresh
+    //-------=====---------
+    Window_Pop.prototype.refresh = function () {
+        this.contents.clear();
+        this.popSe(this._pop.item);
+        this.backgroundManager(LTN.Param.bgType);
+        this.contentManager(this._pop.type, this._pop.icon, this._pop.item, this._pop.amount);
+    };
+
+    //Draw Content according to type
+    Window_Pop.prototype.contentManager = function (type, icon, item, amount) {
+        var align = LTN.Param.autoPopAlign;
+        switch (type) {
+            case 'item':
+                if (WinPopManager.collectMode === 'true' && WinPopManager.itemIsMatch(item, item.id) && amount > 0) {
+                    this.drawItemCollector(item.iconIndex, item, align);
+                } else {
+                    this.drawItemContents(item.iconIndex, item, amount, align);
+                }
+                break;
+            case 'gold':
+                this.drawGoldContents(icon, amount, align);
+                break;
+            case 'custom':
+                this.drawCustomContents(icon, item, align);
+                break;
+            case 'map':
+                this.drawMapDisplay(align);
+                break;
+        }
+    };
+    Window_Pop.prototype.backgroundManager = function (type) {
+        var bgWidth = LTN.Param.windowWidth;
+        //Check which BG to use.
+        switch (type) {
+            // Image choice
+            case 'image':
+                this.drawBackgroundImage();
+                break;
+            // Gradient Choice
+            case 'gradient':
+                this.drawBackgroundGradient(0, 0, bgWidth, this.lineHeight(2));
+                break;
+            // Defualt Choice
+            default:
+                this.drawBackgroundGradient(0, 0, bgWidth, this.lineHeight(2));
+                break;
+        }
+    };
+    //-------=====---------
+    // Draw contents for Auto Item Pop
+    //-------=====---------
+    Window_Pop.prototype.drawMapDisplay = function (align) {
+        var mapName = $gameMap.displayName();
+        var x = this.alignPopText(mapName, LTN.Param.windowWidth, align);
+        if (mapName) this.drawTextEx(mapName, x, 0);
+    };
+    //-------=====---------
+    // Draw contents for Auto Item Pop
+    //-------=====---------
+    Window_Pop.prototype.drawItemContents = function (icon, item, amount, align) {
+        var gainString = LTN.Param.gainString;
+        var loseString = LTN.Param.loseString;
+        var increment = WinPopManager.checkIncrement(amount, gainString, loseString);
+        var newAmount = WinPopManager.cleanString(amount);
+        var coloredItem = WinPopManager.addColorCodeTo(item);
+        var itemString = '';
+        itemString = increment + newAmount + ' ' + coloredItem;
+        var tx = this.alignPopText(itemString, LTN.Param.windowWidth, align);
+        var ix = tx - 32;
+
+        this.drawIcon(icon, ix, 2);
+        this.drawTextEx(itemString, tx, 0);
+    };
+    //-------=====---------
+    // Draw contents for Auto Item Pop Collection Mode
+    //-------=====---------
+    Window_Pop.prototype.drawItemCollector = function (icon, item, align) {
+        // String Variables
+        var gainString = LTN.Param.collectString;
+        var pluralString = LTN.Param.pluralString;
+        var coloredItem = WinPopManager.addColorCodeTo(item);
+        var itemString = '';
+
+        //Collection Object Variables
+        var varVal = WinPopManager.getValueFromObj('gameVar', item, item.id);
+        var itemMax = WinPopManager.getValueFromObj('itemMax', item, item.id);
+        var itemVar = $gameVariables.value(varVal);
+
+        // Draw contents if item matches array in collect object
+        if (WinPopManager.collectMode === 'true' && WinPopManager.itemIsMatch(item, item.id)) {
+            itemString = gainString + ' ' + itemVar + '/' + itemMax + ' ' + coloredItem + pluralString;
+            var tx = this.alignPopText(itemString, LTN.Param.windowWidth, align);
+            var ix = tx - 32;
+            this.drawIcon(icon, ix, 2);
+            this.drawTextEx(itemString, tx, 0);
+        }
+    };
+    //-------=====---------
+    // Draw contents for Auto Gold Pop
+    //-------=====---------
+    Window_Pop.prototype.drawGoldContents = function (icon, amount, align) {
+        var gainString = LTN.Param.gainString;
+        var loseString = LTN.Param.loseString;
+        var increment = WinPopManager.checkIncrement(amount, gainString, loseString);
+        var newAmount = WinPopManager.cleanString(amount);
+        var goldString = increment + newAmount + ' ' + TextManager.currencyUnit;
+        var tx = this.alignPopText(goldString, LTN.Param.windowWidth, align);
+        var ix = tx - 32;
+
+        this.drawIcon(icon, ix, 2);
+        this.drawTextEx(goldString, tx, 0);
+        // }
+    };
+    //-------=====---------
+    // Draw contents For Custom Call
+    //-------=====---------
+    Window_Pop.prototype.drawCustomContents = function (icon, string, align) {
+        var tx = this.alignPopText(string, LTN.Param.windowWidth, align);
+        var ix = tx - 32;
+        this.drawTextEx(string, tx, 0);
+        this.drawIcon(icon, ix, 2);
+    };
+    //-------=====---------
+    // Draw Background
+    //-------=====---------
+    Window_Pop.prototype.drawBackgroundGradient = function (x, y, width, height) {
+        var color1 = LTN.Param.windowGradA;
+        var color2 = LTN.Param.windowGradB;
+        this.contents.gradientFillRect(x, y, width / 2, height, color2, color1);
+        this.contents.gradientFillRect(x + width / 2, y, width / 2, height, color1, color2);
+    };
+    //-------=====---------
+    // Draw Background Image
+    //-------=====---------
+    Window_Pop.prototype.drawBackgroundImage = function () {
+        this._backSprite = ImageManager.loadSystem(LTN.Param.bgImage);
+        this._backSprite1 = new Sprite(this._backSprite);
+        this._backSprite1.x = LTN.Param.bgOffsetX;
+        this._backSprite1.y = LTN.Param.bgOffsetY;
+        this.addChildToBack(this._backSprite1);
+        //
+    };
+    Window_Pop.prototype.standardPadding = function (actor) {
+        return 0;
+    };
+    //-------=====---------
+    // New Method: To Align Auto Pop string for drawTextEx methods x value.
+    //-------=====---------
+    Window_Pop.prototype.alignPopText = function (string, maxWidth, align) {
+        var messageCodesWidth = this.adjustStringWidth(string);
+        var textWidth = this.textWidth(string);
+        var stringWidth = textWidth - messageCodesWidth;
+        var finalX = 0;
+        switch (align) {
+            case 'center':
+                finalX = (maxWidth - stringWidth) / 2;
+                break;
+            case 'left':
+                finalX = 32;
+                break;
+            case 'right':
+                finalX = maxWidth - stringWidth;
+                break;
+        }
+        if (finalX < 32) finalX = 32;
+        return finalX;
+    };
+    //-------=====---------
+    // New Method: To adjust the alignment when message codes are present in string
+    //-------=====---------
+    Window_Pop.prototype.adjustStringWidth = function (string) {
+        var widthToRemove = '';
+        var toAdjust = string.match(/(\\[CNVG]\[\d*\])/g);
+        if (!toAdjust) return 0;
+        for (var i = 0; i < toAdjust.length; i++) {
+            widthToRemove += toAdjust[i];
+        }
+        var removedWidth = this.textWidth(widthToRemove);
+        return removedWidth;
+    };
+    //-------=====---------
+    // New Method: popSe, Setup sound effect object
+    //-------=====---------
+    Window_Pop.prototype.popSe = function (item) {
+        var popSe = {};
+        WinPopManager.changePopSound(popSe, item);
+        popSe.pitch = LTN.Param.popPitch;
+        popSe.volume = LTN.Param.popVol;
+        popSe.pan = 0;
+        AudioManager.playSe(popSe);
+    };
+    // =============================================================================
+    // New Static Class: Window Pop Manager
+    //
+    // - Handles All Window Pop Functions, Queue System, Collection Mode & Note Tags
+    // - functions include: sortItemType, addColorTo, cleanString, getNotetag...
+    //
+    function WinPopManager() {
+    }
+
+    LTN.WindowPopper = WinPopManager;
+    // Public variables - Call using this.
+    WinPopManager.popQueue = [];
+    WinPopManager.popUps = [];
+
+    WinPopManager._align = 'left';
+    //
+    WinPopManager.collectMode = 'false';
+
+    //----------------------------------------------------------------------------
+    // Window Pop Queue Functions
+    // - Handles queue arrays & adds to scene map, & animations.
+    //
+    WinPopManager.addToSceneMap = function () {
+        //if(this.popUpDelay > 0) this.popUpDelay--;
+        if (this.popQueue.length > 0) {
+            var curPop = this.popQueue[0];
+            this.adjustCollectionVar(curPop.item, curPop.amount);
+            var index=this.generatePopUpIndex();
+            var newPop = new Window_Pop(this.popQueue[0], LTN.Param.windowX, LTN.Param.windowY, index);
+            this.popQueue.shift();
+            this.popUps[index]=newPop;
+            SceneManager._scene.addChild(newPop);
+        }
+        this.slideDownPop();
+    };
+
+    WinPopManager.generatePopUpIndex=function(){
+        for (var i=0;this.popUps[i]!=null;++i);
+        return i;
+    };
+
+    // Animate: slide down pop ups.
+    WinPopManager.slideDownPop = function () {
+        var displayTime = LTN.Param.popDelayTime;
+        var fadeTime = LTN.Param.popFadeTime;
+        if (this.popUps.length > 0) {
+            var currentTime = new Date().getTime();
+            var _this = this;
+            this.popUps.forEach(function (p, i) {
+                if (p==null) return;
+                var span = currentTime - p.createTime;
+                if (span < displayTime) return;
+                span -= displayTime;
+                //console.log(p.index+":"+ p.alpha);
+                p.alpha = 1 - span / fadeTime;
+                if (p.alpha <= 0) {
+                    p.alpha = 0;
+                    _this.popUps[i] = null;
+                }
+
+            });
+        }
+    };
+    //-------=====---------
+    //Set & Add to Queue Array
+    //-------=====---------
+    WinPopManager.addToQueue = function (type, icon, item, amount) {
+        if (SceneManager._scene.constructor !== Scene_Map) return;
+        var pop = this.createEmptyPop();
+        pop.type = type;
+        pop.icon = icon;
+        pop.item = item;
+        pop.amount = amount;
+        this.popQueue.push(pop);
+    };
+    // Create empty object for queueing
+    WinPopManager.createEmptyPop = function () {
+        var empty = {};
+        empty.type = '';
+        empty.icon = 0;
+        empty.string = "";
+        empty.amount = 0;
+        return empty;
+    };
+    //
+    //------------------------------------------------------------------------------
+    // Collection Mode Functions.
+    //  - To handle all object arrays input from the plugin command
+    //
+    WinPopManager.pushToObjArray = function (itemType, itemId, gameVar, maxValue) {
+        var obj = $gameSystem.collectionObject();
+        var index = itemId;
+
+        switch (itemType) {
+            case 'item':
+                if (this.itemIdIndex('item', itemId) < 0) {
+                    obj.item.gameVar.push(gameVar);
+                    obj.item.itemId.push(itemId);
+                    obj.item.itemMax.push(maxValue);
+                }
+                break;
+            case 'armor':
+                if (this.itemIdIndex('armor', itemId) < 0) {
+                    obj.armor.gameVar.push(gameVar);
+                    obj.armor.itemId.push(itemId);
+                    obj.armor.itemMax.push(maxValue);
+                }
+                break;
+            case 'weapon':
+                if (this.itemIdIndex('weapon', itemId) < 0) {
+                    obj.weapon.gameVar.push(gameVar);
+                    obj.weapon.itemId.push(itemId);
+                    obj.weapon.itemMax.push(maxValue);
+                }
+                break;
+        }
+    };
+
+    // For Plugin Command: Remove an Item(elements) from the array and reset variable
+    WinPopManager.removeFromArray = function (itemType, itemId) {
+        var obj = $gameSystem.collectionObject();
+        var index = this.itemIdIndex('item', itemId);
+        switch (itemType) {
+            case 'item':
+                if (this.itemIdIndex('item', itemId) > -1) {
+                    obj.item.gameVar.splice(index, 1);
+                    obj.item.itemId.splice(index, 1);
+                    obj.item.itemMax.splice(index, 1);
+                    $gameVariables.setValue(index, 0);
+                }
+                break;
+            case 'armor':
+                if (this.itemIdIndex('armor', itemId) > -1) {
+                    obj.item.gameVar.splice(index, 1);
+                    obj.armor.itemId.splice(index, 1);
+                    obj.armor.itemMax.splice(index, 1);
+                    $gameVariables.setValue(index, 0);
+                }
+                break;
+            case 'weapon':
+                if (this.itemIdIndex('weapon', itemId) > -1) {
+                    obj.item.gameVar.splice(index, 1);
+                    obj.weapon.itemId.splice(index, 1);
+                    obj.weapon.itemMax.splice(index, 1);
+                    $gameVariables.setValue(index, 0);
+                }
+                break;
+        }
+    };
+    // Check if current item poping is a match with object arrays
+    WinPopManager.itemIsMatch = function (item, itemId) {
+        var obj = $gameSystem.collectionObject();
+        var index = String(itemId);
+        var itemType = this.sortItemType(item);
+        var value = false;
+        switch (itemType) {
+            case 'item':
+                if (obj.item.itemId.indexOf(index) > -1) value = true;
+                break;
+            case 'armor':
+                if (obj.armor.itemId.indexOf(index) > -1) value = true;
+                break;
+            case 'weapon':
+                if (obj.weapon.itemId.indexOf(index) > -1) value = true;
+                break;
+        }
+        return value;
+    };
+    //Get the index from the array for current item poping
+    WinPopManager.itemIdIndex = function (itemType, itemId) {
+        var obj = $gameSystem.collectionObject();
+        var index = String(itemId);
+        var objIndex = 0;
+        if (itemType === 'item')   objIndex = obj.item.itemId.indexOf(index);
+        if (itemType === 'armor')  objIndex = obj.armor.itemId.indexOf(index);
+        if (itemType === 'weapon') objIndex = obj.weapon.itemId.indexOf(index);
+        return objIndex;
+    };
+    // get value from arrays, by using current array position
+    WinPopManager.getValueFromObj = function (type, item, itemId) {
+        var itemType = this.sortItemType(item);
+        var index = this.itemIdIndex(itemType, itemId);
+        var obj = $gameSystem.collectionObject();
+        var value = '';
+        switch (type) {
+            case 'gameVar':
+                if (itemType === 'item')   value = obj.item.gameVar[index];
+                if (itemType === 'armor')  value = obj.armor.gameVar[index];
+                if (itemType === 'weapon') value = obj.weapon.gameVar[index];
+                break;
+            case 'itemMax':
+                if (itemType === 'item')   value = obj.item.itemMax[index];
+                if (itemType === 'armor')  value = obj.armor.itemMax[index];
+                if (itemType === 'weapon') value = obj.weapon.itemMax[index];
+                break;
+        }
+        return value;
+    };
+
+    // Add +1 to gamevariables for collection mode.
+    WinPopManager.adjustCollectionVar = function (item, amount) {
+        if (!item) return;
+        if (this.collectMode === 'true' && this.itemIsMatch(item, item.id)) {
+            var gameVar = this.getValueFromObj('gameVar', item, item.id);
+            var oldValue = $gameVariables.value(gameVar);
+            if (amount > 0) $gameVariables.setValue(gameVar, oldValue + amount);
+        }
+    };
+    //
+    //-----------------------------------------------------------------------------
+    // Window Pop Functions
+    //
+
+    //Sort through item notetags if sound note tag is there change se otherwise defualt
+    WinPopManager.changePopSound = function (sound, item) {
+        var newSound = this.getSoundTagByItemType(item);
+        var itemType = this.sortItemType(item);
+        if (newSound && itemType === 'item') {
+            sound.name = String(newSound).trim();
+        } else {
+            sound.name = LTN.Param.popSe;
+        }
+    };
+
+    // Add the color code from notetag to string
+    WinPopManager.addColorCodeTo = function (item) {
+        var colorCode = this.getColorTagByItemType(item);
+        var oldString = item.name;
+        var newString = '';
+        if (colorCode) {
+            var colorCodeString = '\\C[' + colorCode + ']';
+            newString = colorCodeString.replace(/\s/g, '') + oldString;
+            return newString;
+        } else {
+            return oldString;
+        }
+    };
+
+
+    // New Method: Clean the string, to remove the minus (-) symbol from item.amount
+    WinPopManager.cleanString = function (string) {
+        var oldString = String(string);
+        if (!oldString) return;
+        var cleanString = oldString.replace(/(^-)/g, '');
+        return cleanString;
+    };
+
+    // Check the amount of of item being gained or lost, & change string accordingly
+    WinPopManager.checkIncrement = function (amount, gainString, loseString) {
+        var increment = '';
+        if (amount > 0) {
+            increment = gainString;
+        } else if (amount < 0) {
+            increment = loseString;
+        }
+        return increment;
+    };
+
+    // Sort items, and set the item type.
+    WinPopManager.sortItemType = function (item) {
+        var itemType = '';
+        if (DataManager.isItem(item)) {
+            itemType = 'item';
+        } else if (DataManager.isWeapon(item)) {
+            itemType = 'weapon';
+        } else if (DataManager.isArmor(item)) {
+            itemType = 'armor';
+        } else {
+            itemType = '';
+        }
+        return itemType;
+    };
+
+    // Find notetag according to item being gained
+    WinPopManager.getSoundTagByItemType = function (item) {
+        var soundNotetag = '';
+        var itemType = this.sortItemType(item);
+        switch (itemType) {
+            case 'armor':
+                soundNotetag = $dataArmors[item.id].meta.WPOP_Sound;
+                break;
+            case 'item':
+                soundNotetag = $dataItems[item.id].meta.WPOP_Sound;
+                break;
+            case 'weapon':
+                soundNotetag = $dataWeapons[item.id].meta.WPOP_Sound;
+                break;
+        }
+        return soundNotetag ? soundNotetag : LTN.Param.popSe;
+    };
+
+    // Set the notetag according to type of item
+    WinPopManager.getColorTagByItemType = function (item) {
+        var colorNotetag = '';
+        var itemType = this.sortItemType(item);
+        switch (itemType) {
+            case 'armor':
+                colorNotetag = $dataArmors[item.id].meta.WPOP_Color;
+                break;
+            case 'item':
+                colorNotetag = $dataItems[item.id].meta.WPOP_Color;
+                break;
+            case 'weapon':
+                colorNotetag = $dataWeapons[item.id].meta.WPOP_Color;
+                break;
+        }
+        return colorNotetag;
+    };
+    // =============================================================================
+    // Game_Interpreter.. Create Plugin Command
+    //
+    /*
+     =================Dev Notes=============
+     Add plugin commands for each On/Off switch in the plugin parameters.
+     */
+    LTN.WPOP_oldGPpluginCommand = Game_Interpreter.prototype.pluginCommand;
+    Game_Interpreter.prototype.pluginCommand = function (command, args) {
+        LTN.WPOP_oldGPpluginCommand.call(this, command, args);
+        switch (command) {
+            // WPOP ALIGN ICON STRING
+            case 'WPOP':
+                var pluginString = '';
+                var j = args.length;
+                for (var i = 2; i < j; i++) {
+                    if (i < j) {
+                        pluginString += args[i] ? args[i] : '';
+                        pluginString += " ";
+                    }
+                }
+                var align = args[0] ? String(args[0]).toLowerCase() : 'left';
+                var icon = args[1] ? Number(args[1]) : 0;
+                var string = pluginString;
+                WinPopManager._align = align;
+                WinPopManager.addToQueue('custom', icon, string, 0);
+                break;
+            // WPOPCMODE TRUE/FALSE
+            case 'WPOPCMODE':
+                WinPopManager.collectMode = args[0] ? String(args[0]).toLowerCase() : 'false';
+                break;
+            // WPOPCSET ItemType ItemId Variable MaxValue
+            case 'WPOPCSET':
+                WinPopManager.pushToObjArray(args[0].toLowerCase(), args[1], args[2], args[3]);
+                break;
+            // WPOPCRESET ItemType ItemId
+            case 'WPOPCRESET':
+                WinPopManager.removeFromArray(args[0].toLowerCase(), args[1]);
+                break;
+        }
+    };
 })();
 // =============================================================================
 // THE END, Based On A True Story!

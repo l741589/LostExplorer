@@ -1,128 +1,228 @@
+/*:
+ * @plugindesc V.1.1.0 to edit plenty of message
+ *
+ * @update support fuki message
+ *
+ * @author BigZhao
+ * /
+ * @param Config File
+ * @desc Config file of the plugin
+ * @default
+ *
+ */
 var LYZ=LYZ||{};
-LYZ.MessageSripts=LYZ.MessageSripts||{};
-(function(){
-    var PLUGIN_NAME="LYZ_MSG";
-    var $=LYZ.$;
-    var Scripts=LYZ.MessageSripts;
 
-    function load(file){
-        var msg= $.loadFileSync(PLUGIN_NAME+"/"+file).split(/[\r\n]+/);
-        //var msg=Scripts[file];
-        var ret=[];
-        var cfg=null;
-        msg.forEach(function(e){
-            if (e==null||e=="") return;
-            else if (e=="#CONFIG") cfg=[];
-            else if (e.startsWith("#load")){
-                ret=ret.concat(load(e.substring(5).trim()));
-            } else if (e=="##CONFIG"&&cfg) {
-                ret.push({type:'cfg',val:cfg.join('')});
-                cfg=null;
-            } else if (e.startsWith("-")){
-                ret.push({type:"yield",val: e.substring(1).trim()});
-            } else if (!e.startsWith("#")){
-                if (cfg == null) ret.push({type: 'msg', val: e});
-                else cfg.push(e);
+(function(){
+    var PLUGIN_NAME="MSG";
+    var $=LYZ.$;
+    LYZ.Message=LYZ.Message||{};
+    var M=LYZ.Message;
+    M.workingDir="MSG";
+    M.Config=M.Config||{};
+    M.Scripts=M.Scripts||{};
+    M.Runtime= M.Runtime||{};
+    var cmdPattern=/^\#(\w+)\s+(.*)$/;
+    var msgPattern=/^(?:([^:\uff1a]*)[:\uff1a])?(.+)$/;
+    var params=PluginManager.parameters("LYZ_MessageEx");
+
+    function readFile(filename){
+        if (filename==null||filename=="") return null;
+        return $.loadFileSync(M.workingDir+"/"+filename);
+    }
+
+    function Section(id){
+        this.data=[];
+        this.id=id;
+
+        this.push=function(type,val,who){
+            this.data.push({type:type,val:val,who:who});
+        }
+    }
+
+    function loadMessageFile(filename){
+
+        function _T(i){
+            throw "Invalid Message FIle: '"+filename+"' at line "+i+" (after processing #include)";
+        }
+
+        if (M.Scripts[filename]) return M.Scripts[filename];
+        var ss=readFile(filename).split(/[\r\n]+/g);
+        var script={};
+        var currentSec=null;
+
+        for (var i=0;i<ss.length;++i){
+            var s=ss[i].trim();
+            if (s==null||s=="") continue;
+            var m= s.match(cmdPattern);
+            if (m) {
+                switch (m[1].toLowerCase()) {
+                    case 'sec':
+                    case 'msg':
+                        currentSec=new Section(m[2]);
+                        script[currentSec.id]=currentSec;
+                        break;
+                    case 'include':
+                        var _ss = readFile(m[2]);
+                        ss.splice.apply(ss, [i, 1].concat(_ss));
+                        break;
+                    case 'code':
+                        if (currentSec==null) _T(i);
+                        currentSec.push("code",m[2]);
+                        break;
+                    case 'log':
+                        currentSec.push("log",m[2]);
+                }
+            }else if (s.startsWith("##")) {
+            }else{
+                if (currentSec==null) _T(i);
+                if (s=='-'||s=='\uff0d') currentSec.push('yield');
+                else {
+                    var m_ = s.match(msgPattern);
+                    currentSec.push('msg', m_[2], m_[1]);
+                }
             }
-        });
-        Scripts[file]=ret;
-        return ret;
+        }
+        M.Scripts[filename]=script;
+        return script;
     }
 
     function setBox(file,index,bg,pos){
-        $gameMessage.setFaceImage(file,index);
-        $gameMessage.setBackground(bg);
-        $gameMessage.setPositionType(pos);
+        $gameMessage.setFaceImage(file,index||0);
+        $gameMessage.setBackground(bg||0);
+        $gameMessage.setPositionType(pos||2);
     }
 
-    function Msg(file) {
-        $.extend(this, {
-            config:{roles:{}},
-            file:file,
-            msg: load(file),
-            index: -1,
-            lastName: null,
-            inc: function () {
-                ++this.index;
-                if (this.index >= this.msg.length) {
-                    this.msg = null;
-                    this.s = null;
-                    this.index = -1;
-                    Scripts.$runtime[file]=null;
-                    return false;
-                }
-                this.s = this.msg[this.index];
-                return true;
-            },
-            show: function (gi) {
-                if ($gameMessage.isBusy()) return false;
-                var _this=this;
-                if (!this.inc()) return true;
-                var s = this.s.val;
-                switch (this.s.type) {
-                    case 'msg':
-                    {
-                        s= s.replace(/\\(\w)\[([^\\]+)\]/,function(c0,c1,c2){
-                            switch(c1){
-                                case 'i':return "\\C["+(_this.config.importantColor||0)+"]"+c2+"\\C";
-                                default: return c0;
-                            }
-                        });
-                        var i = s.indexOf(':');
-                        var j = s.indexOf('：');
-                        if (i == -1) i = Number.MAX_VALUE;
-                        if (j == -1) j = Number.MAX_VALUE;
-                        i = Math.min(i, j);
-                        if (i == Number.MAX_VALUE){
-                            $gameMessage.add(s);
-                        }else {
-                            var nameId = s.substring(0, i);
-                            var body = s.substring(i + 1);
-                            var role = this.config.roles[nameId];
-                            var name = nameId;
-                            if (role) {
-                                name = role.name || nameId;
-                                if (role.box) setBox.apply(window, role.box);
-                            }
-                            $gameMessage.add("【" + name + "】");
-                            $gameMessage.add(body);
-                        }
-                        gi.setWaitMode('message');
-                        break;
-                    }
-                    case 'cfg':
-                    {
-                        var o = JSON.parse(s);
-                        $.extend(this.config.roles, o.roles);
-                        this.config.importantColor= o.importantColor;
-                        break;
-                    }
-                    case 'yield':return true;
-                }
-                return false;
+
+    $.override(Game_Message.prototype,"add",function(args,origin){
+        var fmt="\\C[%1]$1\\C[%2]".format(args[1]||M.Config.importantColor, args[2]||M.Config.defaultColor);
+        var s=args[0].replace(/\\i\[([^\]]*)\]/g, fmt);
+        origin.call(this,s);
+    });
+
+    function msgLine(gi,who,msg){
+        if (who==null) $gameMessage.add(msg);
+        else{
+            var role = M.Config.roles[who];
+            var name = who;
+            if (role) {
+                name = role.name==null?who:role.name;
+                if (role.box&&role.box.length) setBox.apply(window, role.box);
             }
-        });
+            if (msg) {
+                if (name!=null&&name.trim()!="") {
+                    var nameTag=(M.Config.nameTag||"\\>\\C[%3]【%1】\\C[%2]").format(name, M.Config.defaultColor, M.Config.nameColor)
+                    if (nameTag!=null&&nameTag!="") $gameMessage.add(nameTag);
+                }
+                if (role&&role.fuki) msg=role.fuki+msg;
+                $gameMessage.add(msg);
+            }
+        }
+        gi.setWaitMode('message');
     }
 
-    var cmds={
-        msg:function(args){
-            Scripts.$runtime=Scripts.$runtime||{};
-            var file=args[1];
-            var msg=Scripts.$runtime[file];
-            if (msg&&msg.msg) return msg.show(this);
-            else Scripts.$runtime[file]=new Msg(file);
+    function Runtime(filename,section,cmdIndex) {
+        this.id=filename;
+        this.section=section;
+        this.script = loadMessageFile(filename)[section];
+        this.index = -1;
+        this.cmdIndex=cmdIndex;
+        this.next = function (gi) {
+            var line = this.script.data[++this.index];
+            if (line == null) {
+                this.remove();
+                return true;
+            }
+            switch (line.type) {
+                case 'msg':msgLine(gi,line.who, line.val);break;
+                case 'code':eval($.execLine(line.val));break;
+                case 'log':console.log(line.val);break;
+                case 'yield':return true;
+            }
             return false;
+        };
+
+        this.remove = function () {
+            this.cmdIndex=-1;
+            delete M.Runtime[this.script.id];
+        };
+
+        this.reset = function () {
+            this.cmdIndex=-1;
+            this.index = -1;
         }
-    };
+    }
 
-    var _Game_Interpreter_pluginCommand = Game_Interpreter.prototype.pluginCommand;
-    Game_Interpreter.prototype.pluginCommand = function(command, args) {
-        _Game_Interpreter_pluginCommand.call(this, command, args);
-        if (PLUGIN_NAME!=command) return;
-        var f=cmds[args[0]];
-        if (f) return f.call(this, args);
-        return true;
-    };
+    function msg(filename,section){
+        if (M.CurrentRuntime==null|| M.CurrentRuntime!=M.Runtime[filename]|| M.CurrentRuntime.cmdIndex!=this._index){
+            M.CurrentRuntime=new Runtime(filename,section,this._index);
+            M.Runtime[M.CurrentRuntime.id]= M.CurrentRuntime;
+        }
+        return M.CurrentRuntime.next(this);
+    }
 
+    LYZ.$.delegate(Window_Base.prototype,"processNormalCharacter",function(textState){
+        if (textState.x>LYZ.Core.windowWidth()-64) {
+            --textState.index;
+            this.processNewLine(textState);
+        }
+    });
+
+    $.defineCommandWithName(PLUGIN_NAME,PLUGIN_NAME,function(args){
+        if ($gameMessage.isBusy()) {
+            this.commandResult=false;
+            return;
+        }
+        if (args.length==0){
+            args=["continue"];
+        }
+        var r;
+        switch(args[0]){
+            case "msg":{
+                this.commandResult=msg.call(this,args[1],args[2]);
+                break;
+            }
+            case "continue":{
+                r = M.CurrentRuntime;
+                if (args[1] != null) r = M.Runtime[args[1]];
+                if (r) this.commandResult = r.next(this);
+                break;
+            }
+            case "line":{
+                var m=args.slice(1).join(' ').match(msgPattern);
+                msgLine(this,m[1],m[2]);
+                break;
+            }
+            case "break":{
+                r= M.CurrentRuntime;
+                if (args[1]!=null) r= M.Runtime[args[1]];
+                if (r!=null){
+                    r.remove();
+                    M.CurrentRuntime=null;
+                }
+                break;
+            }
+            case "reset":{
+                r= M.CurrentRuntime;
+                if (args[1]!=null) r= M.Runtime[args[1]];
+                if (r) r.reset();
+                break;
+            }
+            default:{
+                this.commandResult=msg.call(this,args[0],args[1]);
+                break;
+            }
+        }
+    });
+
+    var cfg=readFile(params["Config File"]);
+    if (cfg){
+        M.Config = $.extend({
+            "roles":{},
+            "importantColor":17,
+            "defaultColor":0,
+            "nameColor":1
+        },JSON.parse(cfg));
+    }
     console.log("LYZ_MessageEx loaded");
+
 })();

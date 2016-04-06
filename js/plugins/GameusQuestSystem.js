@@ -104,10 +104,6 @@
  * @desc The character used to display each step and reward
  * @default -
  *
- * @param Max Steps
- * @desc Defines the number of steps to show at once under a quest info. Will only show steps you've completed or are already on.
- * @default 3
- *
  * @param ---------------
  *
  * @param Image Options
@@ -145,12 +141,6 @@
  * Quest Add QuestID
  *   Activates a quest.
  *
- * Quest NextStep QuestID
- *   Progresses the quest to the next step.
- *
- * Quest BackStep QuestID
- *   Makes the quest go back a step, allowing for steps to be failed.
- *
  * Quest Complete QuestID
  *   Completes the quest, if Auto Reward is on, the script will give out the rewards.
  *
@@ -185,9 +175,6 @@
  *   Not to be confused with the one above, this checks multiple quests the party has and see if they match the filter.
  *   Filter can be "progress", "completed", or "failed"
  *   Returns true if all the input quests match the filter AND the party has them active. e.g. Can be used to see if the party has completed a range of quests before moving on
- *
- * $gameQuests.get(quest_id).currentStep === step_number
- *   This is how you check which step a quest is on. step_number starts from 0. NOTE: This will still return a number even if the quest hasn't been activated.
  *
  * $gameQuests.get(quest_id).status === "status"
  *   This will return what status the quest is. "status" can be "progress", "completed", or "failed"
@@ -251,11 +238,8 @@ DataManager._databaseFiles.push(
             case 'reset':
                 $gameQuests.get(Number(args[1])).reset();
                 break;
-            case 'nextstep':
-                $gameQuests.get(Number(args[1])).nextStep();
-                break;
-            case 'backstep':
-                $gameQuests.get(Number(args[1])).backStep();
+            case 'try complete':
+                $gameQuests.get(Number(args[1])).tryComplete();
                 break;
             }
         }
@@ -297,7 +281,7 @@ DataManager._databaseFiles.push(
             // If not, give that crap to them. They don't have a choice now.
             this.quests.push(quest_id);
             var quest=$dataQuests[quest_id];
-            if (quest) {
+            if (quest&&LTN&&LTN.WindowPopper) {
                 LTN.WindowPopper.addToQueue("custom",quest.icon,"接受任务\\C[17]"+quest.name,120)
             }
         }
@@ -382,37 +366,40 @@ DataManager._databaseFiles.push(
         this.cat = questData.cat;
         this.name = questData.name;
         this.desc = questData.desc;
-        this.rewards = questData.rewards;
+        this.rewards = questData._rewards;
         this.icon = questData.icon;
-        this.steps = questData.steps;
-        this.maxSteps = this.steps.length;
-        this.currentStep = 0;
+        this.steps = questData._steps;
         this.status = "progress";
     };
     
     Game_Quest.prototype.giveRewards = function() {
         for (var i = 0; i < this.rewards.length; i += 1) {
             var reward = this.rewards[i];
-            switch (reward[0]) {
-                case "item":
-                    item = $dataItems[reward[1]];
-                    $gameParty.gainItem(item, Number(reward[2]));
+            switch (reward.type) {
+                case 0:
+                    item = $dataItems[reward.id];
+                    $gameParty.gainItem(item, Number(reward.amount));
                     break;
-                case "armor":
-                    item = $dataArmors[reward[1]];
-                    $gameParty.gainItem(item, Number(reward[2]));
+                case 2:
+                    item = $dataArmors[reward.id];
+                    $gameParty.gainItem(item, Number(reward.amount));
                     break;
-                case "weapon":
-                    item = $dataWeapons[reward[1]];
-                    $gameParty.gainItem(item, Number(reward[2]));
+                case 1:
+                    item = $dataWeapons[reward.id];
+                    $gameParty.gainItem(item, Number(reward.amount));
                     break;
-                case "xp":
+                case 3:
                     for (var j = 0; j < $gameParty.members().length; j++) { 
-                        $gameParty.members()[j].gainExp(reward[1]);
+                        $gameParty.members()[j].gainExp(reward.amount);
                     };
                     break;
-                case "gold":
-                    $gameParty.gainGold(Number(reward[1]));
+                case 4:
+                    $gameParty.gainGold(Number(reward.amount));
+                    break;
+                case 5:
+                    if (reward.code==null||reward.code=="") break;
+                    var cmd=LYZ.$.execLine(reward.code);
+                    eval(cmd);
                     break;
             }
         }
@@ -420,51 +407,63 @@ DataManager._databaseFiles.push(
     
     Game_Quest.prototype.completed = function() {
         return this.status == "completed";
-    }
+    };
     
     Game_Quest.prototype.inProgress = function() {
         return this.status == "progress";
-    }
+    };
     
     Game_Quest.prototype.failed = function() {
         return this.status == "failed";
-    }
-    
-    Game_Quest.prototype.nextStep = function() {
-        this.currentStep = this.currentStep + 1 > this.maxSteps - 1 ? this.maxSteps - 1 : this.currentStep + 1;
     };
-    
-    Game_Quest.prototype.backStep = function() {
-        this.currentStep = this.currentStep - 1 < 0 ? 0 : this.currentStep - 1;
+
+    Game_Quest.prototype.stepProgress=function(step){
+        switch(step.type){
+            case 5:varVal = $gameVariables.value(step.id);break;
+            case 0:
+            case 1:
+            case 2:
+                var db=[$dataItems,$dataWeapons,$dataArmors][step.type];
+                if (db==null) return 0;
+                var item=db[step.id];
+                if (item==null) return 0;
+                varVal =$gameParty.numItems(item);
+                break;
+            case 3:varVal=$gameParty.gold();break;
+            //case 'switch':varVal=$gameSwitches
+        }
+        return varVal;
     };
-    
-    Game_Quest.prototype.currentStep = function() {
-        return this.currentStep;
-    };
-    
-    Game_Quest.prototype.fail = function() {
-        this.status = "failed";
-    };
-    
+
     Game_Quest.prototype.complete = function() {
+        if (LTN&&LTN.WindowPopper) LTN.WindowPopper.addToQueue("custom",this.icon,"完成任务\\C[17]"+this.name,120)
         if ((GameusScripts["Config"]["QuestSystem"]["Auto Rewards"] || "false").toLowerCase() === "true") {
             this.giveRewards();
         }
-        this.currentStep = this.maxSteps - 1;
+        //this.currentStep = this.maxSteps - 1;
         this.status = "completed";
     };
     
     Game_Quest.prototype.reset = function() {
         this.status = "progress";
-        this.currentStep = 0;
+        //this.currentStep = 0;
     };
 
+    Game_Quest.prototype.tryComplete=function(){
+        for (var i=0;i<this.steps.length;++i){
+            var step=this.steps[i];
+            var x=this.stepProgress(step);
+            if (x<step.amount) return false;
+        }
+        this.complete();
+        return true;
+    };
 //---------------------------------------------------------------------------------------------
 // Game_Quests
 //---------------------------------------------------------------------------------------------
     function Game_Quests() {
         this.initialize.apply(this, arguments);
-    };
+    }
     
     Game_Quests.prototype.initialize = function() {
         this.data = [];
@@ -497,7 +496,7 @@ DataManager._databaseFiles.push(
             if (q.status === filter.toLowerCase())
                 count += 1;
         }
-        return data;
+        return count;
     };
 //---------------------------------------------------------------------------------------------
 // Window_Base
@@ -609,8 +608,9 @@ DataManager._databaseFiles.push(
             this.drawIcon(q.icon, 0, this.lineY);
             headerX = 40;
         }
+        var status={"completed":"[完成]","failed":"[失败]","progress":"[进行中]"}[q.status]||"";
         this.questBitmap.textColor = this.systemColor();
-        this.questBitmap.drawText(q.name, headerX, this.lineY, this.contentsWidth() - headerX, this.lineHeight());
+        this.questBitmap.drawText(q.name+status, headerX, this.lineY, this.contentsWidth() - headerX, this.lineHeight());
         this.write();
         this.questBitmap.textColor = this.normalColor();
         var lines = this.sliceText(q.desc, this.contentsWidth());
@@ -626,30 +626,37 @@ DataManager._databaseFiles.push(
         // Draw the quest steps
         var bullet = String(GameusScripts["Config"]["QuestSystem"]["Bullet Character"] || "-" ) + " ";
         this.questBitmap.textColor = this.systemColor(); 
-        this.questBitmap.drawText("Steps", 0, this.lineY, this.contentsWidth(), this.lineHeight());
+        this.questBitmap.drawText(GameusScripts["Config"]["QuestSystem"]["Steps Word"] || "Steps", 0,
+            this.lineY, this.contentsWidth(), this.lineHeight(),"left");
         this.write();
         this.questBitmap.textColor = this.normalColor();
-        var maxSteps = Number(GameusScripts["Config"]["QuestSystem"]["Max Steps"] || 3);
+        /*var maxSteps = Number(GameusScripts["Config"]["QuestSystem"]["Max Steps"] || 3);
         if (maxSteps === 0)
             maxSteps = q.steps.length;
         if (q.currentStep >= q.steps.length)
             q.currentStep = q.steps.length - 1;
         var startStep = Math.max(0, q.currentStep - maxSteps + 1);
-        var drawableSteps = q.steps.slice(startStep, q.currentStep + 1);
-        for (var i = 0; i < drawableSteps.length; i += 1) {
-            var step = drawableSteps[i];
-            var stepText = bullet + step[0];
-            if (step[1] === true) {
-                var varVal = $gameVariables.value(step[2]);
-                var maxVal = step[3];
-                if (step[4])
+        var drawableSteps = q.steps.slice(startStep, q.currentStep + 1);*/
+        for (var i = 0; i < q.steps.length; ++i) {
+            var step = q.steps[i];
+            var stepText = step.desc;
+            if (step.showProgress === true) {
+                var varVal= q.stepProgress(step);
+                var db=[$dataItems,$dataWeapons,$dataArmors][step.type];
+                if (db!=null) {
+                    var item = db[step.id];
+                    if (item != null && (stepText == null || stepText == "")) stepText = item.name;
+                }
+                var maxVal = step.amount;
+                if (step.percentage)
                     stepText += " " + String(Math.floor(varVal / maxVal * 100)) + "%";
                 else
                     stepText += " " + String(varVal) + " / " + String(maxVal);
-            }    
-            lines = this.sliceText(stepText, this.contentsWidth());
-            var done = i + startStep < q.currentStep || (q.status === "completed" || q.status === "failed");
-            this.questBitmap.paintOpacity = done ? 160 : 255
+            }
+            stepText=bullet+stepText;
+            var lines = this.sliceText(stepText, this.contentsWidth());
+            //var done = i + startStep < q.currentStep || (q.status === "completed" || q.status === "failed");
+            //this.questBitmap.paintOpacity = done ? 160 : 255
             for (var j = 0; j < lines.length; j += 1) {
                 var bulletOffset = 0;
                 if (j > 0)
@@ -658,21 +665,22 @@ DataManager._databaseFiles.push(
                 this.write();
             }
         }
+
         this.drawHorzLine(this.lineY);
         this.write();
-    }
+    };
     
     Window_QuestInfo.prototype.drawQuestRewards = function(q) {
         var bullet = String(GameusScripts["Config"]["QuestSystem"]["Bullet Character"] || "-" ) + " ";
         // Draw Rewards
         this.questBitmap.textColor = this.systemColor(); 
-        this.questBitmap.drawText("Rewards", 0, this.lineY, this.contentsWidth(), this.lineHeight());
+        this.questBitmap.drawText(GameusScripts["Config"]["QuestSystem"]["Rewards Word"] || "Rewards", 0, this.lineY, this.contentsWidth(), this.lineHeight(),"left");
         this.write();
         this.questBitmap.textColor = this.normalColor();
         for (var i = 0; i < q.rewards.length; i += 1) {
             var reward = q.rewards[i];
             // If the reward is hidden and quest not completed yet...
-            if (reward[3] === true && q.status !== "completed") {
+            if (reward.hidden === true && q.status !== "completed") {
                 // Draw this shit as hidden
                 var hidden = bullet + (GameusScripts["Config"]["QuestSystem"]["Hidden Reward Text"] || "??????");
                 this.questBitmap.drawText(hidden, 0, this.lineY, this.contentsWidth(), this.lineHeight());
@@ -683,45 +691,45 @@ DataManager._databaseFiles.push(
             var amount = null;
             var done = (q.status === "completed" || q.status === "failed");
             this.questBitmap.paintOpacity = done ? 160 : 255
-            switch (reward[0]) {
+            switch (reward.type) {
                 case "item":
-                    item = $dataItems[reward[1]];
-                    amount = reward[2];
+                    item = $dataItems[reward.id];
+                    amount = reward.amount;
                     this.questBitmap.drawText(bullet, 0, this.lineY, this.contentsWidth(), this.lineHeight());
                     this.drawItemName(item, this.contents.measureTextWidth(bullet), this.lineY, this.contentsWidth());
                     this.questBitmap.drawText("x" + String(amount), 0, this.lineY, this.contentsWidth(), this.lineHeight(), "right");
                     this.write();
                     break;
                 case "armor":
-                    item = $dataArmors[reward[1]];
-                    amount = reward[2];
+                    item = $dataArmors[reward.id];
+                    amount = reward.amount;
                     this.questBitmap.drawText(bullet, 0, this.lineY, this.contentsWidth(), this.lineHeight());
                     this.drawItemName(item, this.contents.measureTextWidth(bullet), this.lineY, this.contentsWidth());
                     this.questBitmap.drawText("x" + String(amount), 0, this.lineY, this.contentsWidth(), this.lineHeight(), "right");
                     this.write();
                     break;
                 case "weapon":
-                    item = $dataWeapons[reward[1]];
-                    amount = reward[2];
+                    item = $dataWeapons[reward.id];
+                    amount = reward.amount;
                     this.questBitmap.drawText(bullet, 0, this.lineY, this.contentsWidth(), this.lineHeight());
                     this.drawItemName(item, this.contents.measureTextWidth(bullet), this.lineY, this.contentsWidth());
                     this.questBitmap.drawText("x" + String(amount), 0, this.lineY, this.contentsWidth(), this.lineHeight(), "right");
                     this.write();
                     break;
                 case "xp":
-                    amount = reward[1];
+                    amount = reward.amount;
                     this.questBitmap.drawText(bullet + TextManager.exp, 0, this.lineY, this.contentsWidth(), this.lineHeight());
                     this.questBitmap.drawText("x" + String(amount), 0, this.lineY, this.contentsWidth(), this.lineHeight(), "right");
                     this.write();
                     break;
                 case "gold":
-                    amount = reward[1];
+                    amount = reward.amount;
                     this.questBitmap.drawText(bullet + TextManager.currencyUnit, 0, this.lineY, this.contentsWidth(), this.lineHeight());
                     this.questBitmap.drawText("x" + String(amount), 0, this.lineY, this.contentsWidth(), this.lineHeight(), "right");
                     this.write();
                     break;
                 case "custom":
-                    amount = this.sliceText(bullet + reward[1], this.contentsWidth());
+                    amount = this.sliceText(bullet + reward.desc, this.contentsWidth());
                     for (var j = 0; j < amount.length; j += 1) {
                         var bulletOffset = 0;
                         if (j > 0)
@@ -963,6 +971,7 @@ DataManager._databaseFiles.push(
             GameusScripts["Config"]["QuestSystem"]["Progress Word"] || "In-Progress",
             GameusScripts["Config"]["QuestSystem"]["Completed Word"] || "Completed",
             GameusScripts["Config"]["QuestSystem"]["Failed Word"] || "Failed",
+            GameusScripts["Config"]["QuestSystem"]["Rewards Word"] || "Rewards",
         ];
         var xx = (GameusScripts["Config"]["QuestSystem"]["Reverse Layout"] || "false").toLowerCase() === "true" ? Graphics.boxWidth - 320 : 0;
         var yy = String(GameusScripts["Config"]["QuestSystem"]["Filter Position"]).toLowerCase() === "top" ? 0 : Graphics.boxHeight - this.windowHeight();
@@ -1060,4 +1069,27 @@ DataManager._databaseFiles.push(
     Scene_Menu.prototype.commandQuest = function() {
         SceneManager.push(Scene_Quest);
     };
-    
+(function() {
+    var someThingChanged=false;
+    LYZ.$.delegate(Game_Party.prototype, "gainItem", function () {
+        someThingChanged=true;
+    });
+
+    LYZ.$.delegate(Game_Party.prototype,"gainGold",function(){
+        someThingChanged=true;
+    });
+
+    LYZ.$.delegate(Game_Variables.prototype,"setValue",function(){
+        someThingChanged=true;
+    });
+    LYZ.$.delegate(Scene_Map.prototype,"update",function(){
+        if (someThingChanged){
+            $gameParty.quests.forEach(function(i){
+                var q=$gameQuests.get(i);
+                if (q==null) return;
+                q.tryComplete();
+            });
+            someThingChanged=false;
+        }
+    });
+})();
