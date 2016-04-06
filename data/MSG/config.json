@@ -1,16 +1,25 @@
+
 {
-  "roles": {
-	"1": {
-	  "box": ["heros",0],
-	  "name": "\\N[1]"
+	"roles" :
+	{
+		"1" :
+		{
+			"box" : ["heros", 0],
+			"name" : "\\N[1]"
+		},
+		"2" :
+		{
+			"box" : ["heros", 1],
+			"name" : "\\N[2]"
+		},
+		"r1" :
+		{
+			"box" : ["roles", 0],
+			"name" : "\\N[5]"
+		}
 	},
-	"2": {
-	  "box": ["heros",1],
-	  "name": "\\N[2]"
-	}
-  },
-  "importantColor":17,
-  "defaultColor":0,
-  "nameColor":1,
-  "nameTag":"\\>\\C[%3]【%1】\\C[%2]"
+	"importantColor" : 17,
+	"defaultColor" : 0,
+	"nameColor" : 1,
+	"nameTag" : "\\>\\C[%3]【%1】\\C[%2]"
 }
